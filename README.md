@@ -70,6 +70,15 @@ cp .env.example .env
 
 Train a model using LoRA on your custom dataset:
 
+**With uv:**
+```bash
+uv run scripts/train.py \
+  model=qwen2_7b \
+  training=lora \
+  data.paths.train_file=data/raw/your_data.csv
+```
+
+**With Python:**
 ```bash
 python scripts/train.py \
   model=qwen2_7b \
@@ -79,16 +88,26 @@ python scripts/train.py \
 
 **Example with Groq API:**
 ```bash
-python scripts/train.py \
-  model=api_groq \
-  training=lora \
-  data.paths.train_file=data/raw/sample_instructions.csv
+# With uv
+uv run scripts/train.py model=api_groq training=lora data.paths.train_file=data/raw/sample_instructions.csv
+
+# With Python
+python scripts/train.py model=api_groq training=lora data.paths.train_file=data/raw/sample_instructions.csv
 ```
 
 ### 2. Running Inference
 
 Generate text with a trained model:
 
+**With uv:**
+```bash
+uv run scripts/inference.py \
+  model=qwen2_7b \
+  checkpoint_path=outputs/checkpoints/final \
+  prompt="Explain quantum computing"
+```
+
+**With Python:**
 ```bash
 python scripts/inference.py \
   model=qwen2_7b \
@@ -100,26 +119,29 @@ python scripts/inference.py \
 
 **ReAct Agent with Tools:**
 ```bash
-python scripts/run_agent.py \
-  agent=react \
-  model=api_groq \
-  +query="What is 123 multiplied by 456?"
+# With uv
+uv run scripts/run_agent.py agent=react model=api_groq +query="What is 123 multiplied by 456?"
+
+# With Python
+python scripts/run_agent.py agent=react model=api_groq +query="What is 123 multiplied by 456?"
 ```
 
 **RAG Pipeline:**
 ```bash
-python scripts/run_agent.py \
-  agent=rag \
-  model=api_groq \
-  +query="What is machine learning?"
+# With uv
+uv run scripts/run_agent.py agent=rag model=api_groq +query="What is machine learning?"
+
+# With Python
+python scripts/run_agent.py agent=rag model=api_groq +query="What is machine learning?"
 ```
 
 **Multi-Agent System:**
 ```bash
-python scripts/run_agent.py \
-  agent=multi_agent \
-  model=api_groq \
-  +query="Write a blog post about AI"
+# With uv
+uv run scripts/run_agent.py agent=multi_agent model=api_groq +query="Write a blog post about AI"
+
+# With Python
+python scripts/run_agent.py agent=multi_agent model=api_groq +query="Write a blog post about AI"
 ```
 
 ## Configuration
@@ -154,7 +176,15 @@ configs/
 Create your own config or override parameters:
 
 ```bash
-# Override specific parameters
+# Override specific parameters (with uv)
+uv run scripts/train.py \
+  model=qwen2_7b \
+  training=lora \
+  training.lora.r=16 \
+  training.lora.alpha=32 \
+  training.num_epochs=5
+
+# Override specific parameters (with Python)
 python scripts/train.py \
   model=qwen2_7b \
   training=lora \
@@ -163,10 +193,9 @@ python scripts/train.py \
   training.num_epochs=5
 
 # Use multiple config files
-python scripts/train.py \
-  model=llama3_8b \
-  training=qlora \
-  data=instruction
+uv run scripts/train.py model=llama3_8b training=qlora data=instruction
+# or
+python scripts/train.py model=llama3_8b training=qlora data=instruction
 ```
 
 ## Data Format
@@ -281,12 +310,22 @@ Then open http://localhost:5000 in your browser.
 **Groq API:**
 ```bash
 export GROQ_API_KEY=your_key_here
+
+# With uv
+uv run scripts/run_agent.py agent=react model=api_groq
+
+# With Python
 python scripts/run_agent.py agent=react model=api_groq
 ```
 
 **HuggingFace Inference API:**
 ```bash
 export HF_API_KEY=your_key_here
+
+# With uv
+uv run scripts/train.py model=api_huggingface training=lora
+
+# With Python
 python scripts/train.py model=api_huggingface training=lora
 ```
 
@@ -295,7 +334,10 @@ python scripts/train.py model=api_huggingface training=lora
 # Make sure Ollama is running
 ollama serve
 
-# Use in framework
+# With uv
+uv run scripts/inference.py model=ollama
+
+# With Python
 python scripts/inference.py model=ollama
 ```
 
@@ -306,6 +348,15 @@ python scripts/inference.py model=ollama
 Fine-tune a 7B model with 4-bit quantization:
 
 ```bash
+# With uv
+uv run scripts/train.py \
+  model=qwen2_7b \
+  training=qlora \
+  data.paths.train_file=data/raw/instructions.csv \
+  training.num_epochs=3 \
+  training.batch_size=4
+
+# With Python
 python scripts/train.py \
   model=qwen2_7b \
   training=qlora \
@@ -319,6 +370,14 @@ python scripts/train.py \
 Train with preference pairs:
 
 ```bash
+# With uv
+uv run scripts/train.py \
+  model=llama3_8b \
+  training=dpo \
+  data=preference \
+  data.paths.train_file=data/raw/preferences.csv
+
+# With Python
 python scripts/train.py \
   model=llama3_8b \
   training=dpo \
