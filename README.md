@@ -103,7 +103,7 @@ python scripts/inference.py \
 python scripts/run_agent.py \
   agent=react \
   model=api_groq \
-  agent.query="What is 123 multiplied by 456?"
+  +query="What is 123 multiplied by 456?"
 ```
 
 **RAG Pipeline:**
@@ -111,7 +111,7 @@ python scripts/run_agent.py \
 python scripts/run_agent.py \
   agent=rag \
   model=api_groq \
-  agent.query="What is machine learning?"
+  +query="What is machine learning?"
 ```
 
 **Multi-Agent System:**
@@ -119,7 +119,7 @@ python scripts/run_agent.py \
 python scripts/run_agent.py \
   agent=multi_agent \
   model=api_groq \
-  agent.task="Write a blog post about AI"
+  +query="Write a blog post about AI"
 ```
 
 ## Configuration
