@@ -56,6 +56,14 @@ class ReActAgent:
             raise ValueError("Either model or llm must be provided")
 
         self._model.load()
+
+        # For API models, return the client directly (it's already a ChatModel)
+        if hasattr(self._model, '_client') and self._model._client is not None:
+            # Check if it's a LangChain ChatModel
+            if hasattr(self._model._client, 'bind_tools'):
+                return self._model._client
+
+        # For local models, wrap them
         return LangChainModelWrapper(self._model)
 
     def _create_tools(self) -> list:
@@ -68,9 +76,13 @@ class ReActAgent:
                 continue
 
             if tool_cfg.name == "calculator":
-                tools.append(self._create_calculator_tool())
+                tool = self._create_calculator_tool()
+                if tool:
+                    tools.append(tool)
             elif tool_cfg.name == "search":
-                tools.append(self._create_search_tool())
+                tool = self._create_search_tool()
+                if tool:
+                    tools.append(tool)
 
         return tools
 

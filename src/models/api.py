@@ -50,12 +50,23 @@ class APIModel(BaseModel):
     def _init_groq_client(self, api_key: str) -> None:
         """Initialize Groq client."""
         try:
-            from groq import Groq
-            self._client = Groq(api_key=api_key)
+            # Use langchain-groq for better LangChain integration
+            from langchain_groq import ChatGroq
+            gen_cfg = self.cfg.get("generation", {})
+            self._client = ChatGroq(
+                model=self.model_id,
+                api_key=api_key,
+                temperature=gen_cfg.get("temperature", 0.7),
+            )
             self._client_type = "groq"
         except ImportError:
-            logger.warning("groq package not installed, using httpx")
-            self._init_openai_compatible_client(api_key)
+            try:
+                from groq import Groq
+                self._client = Groq(api_key=api_key)
+                self._client_type = "groq_sdk"
+            except ImportError:
+                logger.warning("groq package not installed, using httpx")
+                self._init_openai_compatible_client(api_key)
 
     def _init_huggingface_client(self, api_key: str) -> None:
         """Initialize HuggingFace Inference client."""
@@ -158,6 +169,23 @@ class APIModel(BaseModel):
         gen_config: dict[str, Any],
     ) -> str:
         """Chat using Groq API."""
+        # If using LangChain ChatGroq client
+        if hasattr(self._client, 'invoke'):
+            from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+            lc_messages = []
+            for msg in messages:
+                role = msg["role"]
+                content = msg["content"]
+                if role == "system":
+                    lc_messages.append(SystemMessage(content=content))
+                elif role == "user":
+                    lc_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    lc_messages.append(AIMessage(content=content))
+            response = self._client.invoke(lc_messages)
+            return response.content
+
+        # If using Groq SDK client
         response = self._client.chat.completions.create(
             model=self.model_id,
             messages=messages,

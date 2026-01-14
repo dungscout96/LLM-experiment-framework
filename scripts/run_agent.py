@@ -30,11 +30,12 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def run_react_agent(cfg: DictConfig) -> None:
-    """Run ReAct agent interactively.
+def run_react_agent(cfg: DictConfig, single_query: str = None) -> None:
+    """Run ReAct agent interactively or with a single query.
 
     Args:
         cfg: Hydra configuration.
+        single_query: Optional single query to run non-interactively.
     """
     console.print("\n[bold blue]ReAct Agent[/bold blue]")
 
@@ -43,6 +44,27 @@ def run_react_agent(cfg: DictConfig) -> None:
     agent.setup()
 
     console.print(f"Tools: [green]{[t.name for t in agent._tools]}[/green]")
+
+    # Single query mode
+    if single_query:
+        console.print(f"\n[bold blue]Query:[/bold blue] {single_query}\n")
+        with console.status("[bold green]Agent thinking..."):
+            result = agent.run(single_query)
+
+        console.print(Panel(
+            result["output"],
+            title="[bold green]Response[/bold green]",
+            border_style="green",
+        ))
+
+        if result.get("messages") and cfg.agent.get("verbose", False):
+            console.print("\n[dim]Message history:[/dim]")
+            for msg in result.get("messages", []):
+                if hasattr(msg, "content"):
+                    console.print(f"  {msg.__class__.__name__}: {msg.content[:200]}...")
+        return
+
+    # Interactive mode
     console.print("\nType 'quit' to exit, 'clear' to clear memory\n")
 
     while True:
@@ -67,14 +89,11 @@ def run_react_agent(cfg: DictConfig) -> None:
             border_style="green",
         ))
 
-        if result.get("intermediate_steps") and cfg.agent.verbose:
-            console.print("\n[dim]Intermediate steps:[/dim]")
-            for step in result["intermediate_steps"]:
-                action, observation = step
-                console.print(f"  Action: {action.tool}")
-                console.print(f"  Input: {action.tool_input}")
-                console.print(f"  Result: {observation[:100]}...")
-            console.print()
+        if result.get("messages") and cfg.agent.get("verbose", False):
+            console.print("\n[dim]Message history:[/dim]")
+            for msg in result.get("messages", []):
+                if hasattr(msg, "content"):
+                    console.print(f"  {msg.__class__.__name__}: {msg.content[:200]}...")
 
 
 def run_rag_pipeline(cfg: DictConfig) -> None:
@@ -198,13 +217,44 @@ def main(cfg: DictConfig) -> None:
     console.print(f"Agent Type: [green]{cfg.agent.type}[/green]")
 
     agent_type = cfg.agent.type
+    query = cfg.get("query", None)
 
     if agent_type == "react":
-        run_react_agent(cfg)
+        run_react_agent(cfg, single_query=query)
     elif agent_type == "rag":
-        run_rag_pipeline(cfg)
+        if query:
+            console.print(f"\n[bold blue]Query:[/bold blue] {query}\n")
+            model = ModelFactory.create(cfg.model)
+            rag = RAGPipeline(cfg.agent, model=model)
+            rag.setup()
+            with console.status("[bold green]Querying..."):
+                result = rag.query(query)
+            console.print(Panel(
+                result["answer"],
+                title="[bold green]Answer[/bold green]",
+                border_style="green",
+            ))
+            if result.get("source_documents"):
+                console.print("\n[dim]Sources:[/dim]")
+                for i, doc in enumerate(result["source_documents"][:3], 1):
+                    console.print(f"  {i}. {doc['content'][:100]}...")
+        else:
+            run_rag_pipeline(cfg)
     elif agent_type == "multi_agent":
-        run_multi_agent(cfg)
+        if query:
+            console.print(f"\n[bold blue]Task:[/bold blue] {query}\n")
+            model = ModelFactory.create(cfg.model)
+            orchestrator = MultiAgentOrchestrator(cfg.agent, model=model)
+            orchestrator.setup()
+            with console.status("[bold green]Agents working..."):
+                result = orchestrator.run(query)
+            console.print(Panel(
+                result["output"],
+                title="[bold green]Final Output[/bold green]",
+                border_style="green",
+            ))
+        else:
+            run_multi_agent(cfg)
     else:
         console.print(f"[red]Unknown agent type: {agent_type}[/red]")
         console.print("Available types: react, rag, multi_agent")
