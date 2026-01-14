@@ -1,0 +1,63 @@
+# Multi-Agent Configuration
+name: multi_agent
+type: multi_agent
+
+# Agent definitions
+agents:
+  - name: researcher
+    role: "Research Specialist"
+    goal: "Find and synthesize information from various sources"
+    backstory: "You are an expert researcher with access to search tools"
+    tools:
+      - search
+    verbose: true
+
+  - name: analyst
+    role: "Data Analyst"
+    goal: "Analyze data and provide insights"
+    backstory: "You are a data analyst skilled in interpreting information"
+    tools:
+      - calculator
+    verbose: true
+
+  - name: writer
+    role: "Content Writer"
+    goal: "Create clear and engaging content"
+    backstory: "You are a skilled writer who can synthesize complex information"
+    tools: []
+    verbose: true
+
+# Orchestration settings
+orchestration:
+  type: sequential  # sequential, hierarchical, collaborative
+  manager_llm: null  # Use different model for manager (hierarchical only)
+
+# Task definitions (templates)
+tasks:
+  research:
+    description: "Research the topic: {topic}"
+    expected_output: "A comprehensive summary of findings"
+    agent: researcher
+
+  analyze:
+    description: "Analyze the research findings"
+    expected_output: "Key insights and patterns"
+    agent: analyst
+    context:
+      - research
+
+  write:
+    description: "Write a report based on the analysis"
+    expected_output: "A well-structured report"
+    agent: writer
+    context:
+      - research
+      - analyze
+
+# Memory settings
+memory:
+  enabled: true
+  type: buffer
+
+# Verbose output
+verbose: true

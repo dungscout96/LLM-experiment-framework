@@ -1,0 +1,53 @@
+# Preference Data Configuration (for DPO/RLHF)
+name: preference
+
+# Data paths
+paths:
+  raw_dir: ${project.data_dir}/raw
+  processed_dir: ${project.data_dir}/processed
+  train_file: null
+  val_file: null
+  test_file: null
+
+# File format
+format:
+  type: csv
+  delimiter: ","
+  encoding: utf-8
+  header: true
+
+# Column mapping for preference data
+columns:
+  instruction: prompt  # The prompt/question
+  input: null
+  output: null
+  chosen: chosen  # The preferred response
+  rejected: rejected  # The rejected response
+
+# Preprocessing
+preprocessing:
+  remove_duplicates: true
+  min_length: 10
+  max_length: 5000
+  strip_whitespace: true
+  lowercase: false
+
+# Split ratios
+split:
+  train_ratio: 0.9
+  val_ratio: 0.1
+  test_ratio: 0.0
+  shuffle: true
+  stratify: null
+
+# Tokenization
+tokenization:
+  padding: max_length
+  truncation: true
+  return_tensors: pt
+
+# DataLoader settings
+dataloader:
+  shuffle_train: true
+  drop_last: true  # Important for DPO batch processing
+  pin_memory: true

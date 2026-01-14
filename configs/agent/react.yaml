@@ -1,0 +1,49 @@
+# ReAct Agent Configuration
+name: react
+type: react
+
+# Agent settings
+agent:
+  max_iterations: 10
+  early_stopping: true
+  handle_parsing_errors: true
+  return_intermediate_steps: true
+
+# Available tools
+tools:
+  - name: search
+    enabled: true
+    description: "Search for information on the web"
+  - name: calculator
+    enabled: true
+    description: "Perform mathematical calculations"
+  - name: python_repl
+    enabled: false
+    description: "Execute Python code"
+
+# Memory settings
+memory:
+  type: buffer  # buffer, summary, buffer_window
+  max_token_limit: 2000
+  return_messages: true
+
+# Prompt customization
+prompts:
+  system: |
+    You are a helpful AI assistant that uses reasoning and actions to solve problems.
+    Think step by step and use the available tools when needed.
+
+  format_instructions: |
+    Use the following format:
+
+    Question: the input question you must answer
+    Thought: you should always think about what to do
+    Action: the action to take, should be one of [{tool_names}]
+    Action Input: the input to the action
+    Observation: the result of the action
+    ... (this Thought/Action/Action Input/Observation can repeat N times)
+    Thought: I now know the final answer
+    Final Answer: the final answer to the original input question
+
+# Verbose output
+verbose: true

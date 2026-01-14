@@ -1,0 +1,40 @@
+# Main Hydra Configuration
+# Override with: python scripts/train.py model=llama3_8b training=lora
+
+defaults:
+  - model: llama3_8b
+  - training: lora
+  - data: default
+  - agent: react
+  - _self_
+
+# Project paths
+project:
+  name: llm-experiment
+  root_dir: ${hydra:runtime.cwd}
+  data_dir: ${project.root_dir}/data
+  output_dir: ${project.root_dir}/outputs
+  mlflow_dir: ${project.root_dir}/mlruns
+
+# MLflow configuration
+mlflow:
+  tracking_uri: ${project.mlflow_dir}
+  experiment_name: ${project.name}
+  run_name: ${model.name}_${training.method}
+
+# Hardware configuration
+hardware:
+  device: auto  # auto, cpu, cuda, mps
+  dtype: float16  # float32, float16, bfloat16
+  num_workers: 4
+
+# Seed for reproducibility
+seed: 42
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${project.output_dir}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ${project.output_dir}/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

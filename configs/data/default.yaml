@@ -1,0 +1,53 @@
+# Default Data Configuration
+name: default
+
+# Data paths
+paths:
+  raw_dir: ${project.data_dir}/raw
+  processed_dir: ${project.data_dir}/processed
+  train_file: null  # Set via CLI: data.paths.train_file=path/to/train.csv
+  val_file: null
+  test_file: null
+
+# File format
+format:
+  type: csv  # csv, tsv, jsonl
+  delimiter: ","  # "," for csv, "\t" for tsv
+  encoding: utf-8
+  header: true
+
+# Column mapping (map your CSV columns to standard names)
+columns:
+  instruction: instruction  # Column containing instruction/prompt
+  input: input  # Column containing additional input (optional)
+  output: output  # Column containing expected output/response
+  chosen: null  # For DPO: chosen response column
+  rejected: null  # For DPO: rejected response column
+
+# Preprocessing
+preprocessing:
+  remove_duplicates: true
+  min_length: 10  # Minimum text length
+  max_length: 10000  # Maximum text length
+  strip_whitespace: true
+  lowercase: false
+
+# Train/val/test split (used if only train_file is provided)
+split:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  shuffle: true
+  stratify: null  # Column name to stratify by
+
+# Tokenization
+tokenization:
+  padding: max_length
+  truncation: true
+  return_tensors: pt
+
+# DataLoader settings
+dataloader:
+  shuffle_train: true
+  drop_last: false
+  pin_memory: true

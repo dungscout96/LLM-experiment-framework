@@ -1,0 +1,30 @@
+# Qwen2 7B Configuration
+name: qwen2_7b
+family: qwen
+
+# Model source
+source: local
+model_id: Qwen/Qwen2-7B-Instruct
+revision: main
+
+# Quantization settings
+quantization:
+  enabled: false
+  bits: 4
+  quant_type: nf4
+
+# Generation parameters
+generation:
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 50
+  do_sample: true
+  repetition_penalty: 1.1
+
+# Chat template
+chat_template: qwen
+
+# Memory optimization
+use_flash_attention: true
+gradient_checkpointing: true

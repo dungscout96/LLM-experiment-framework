@@ -1,0 +1,55 @@
+# DPO (Direct Preference Optimization) Training Configuration
+method: dpo
+type: dpo
+
+# DPO specific parameters
+dpo:
+  beta: 0.1  # KL penalty coefficient
+  loss_type: sigmoid  # sigmoid, hinge, ipo
+  label_smoothing: 0.0
+  reference_free: false
+
+# LoRA for DPO (optional, set enabled: false for full fine-tuning)
+lora:
+  enabled: true
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  bias: none
+  task_type: CAUSAL_LM
+
+# Training hyperparameters
+training:
+  num_epochs: 1
+  batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler_type: cosine
+  max_seq_length: 1024
+  max_prompt_length: 512
+
+# Optimizer
+optimizer:
+  name: adamw_torch
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+# Logging and saving
+logging:
+  log_steps: 10
+  eval_steps: 50
+  save_steps: 200
+  save_total_limit: 2
+
+# Early stopping
+early_stopping:
+  enabled: true
+  patience: 2
+  threshold: 0.01

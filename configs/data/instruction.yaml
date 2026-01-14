@@ -1,0 +1,76 @@
+# Instruction Tuning Data Configuration
+name: instruction
+
+# Data paths
+paths:
+  raw_dir: ${project.data_dir}/raw
+  processed_dir: ${project.data_dir}/processed
+  train_file: null
+  val_file: null
+  test_file: null
+
+# File format
+format:
+  type: csv
+  delimiter: ","
+  encoding: utf-8
+  header: true
+
+# Column mapping for instruction format
+columns:
+  instruction: instruction
+  input: input
+  output: output
+  chosen: null
+  rejected: null
+
+# Prompt template for instruction format
+prompt_template: |
+  Below is an instruction that describes a task. Write a response that appropriately completes the request.
+
+  ### Instruction:
+  {instruction}
+
+  ### Input:
+  {input}
+
+  ### Response:
+  {output}
+
+# Template without input
+prompt_template_no_input: |
+  Below is an instruction that describes a task. Write a response that appropriately completes the request.
+
+  ### Instruction:
+  {instruction}
+
+  ### Response:
+  {output}
+
+# Preprocessing
+preprocessing:
+  remove_duplicates: true
+  min_length: 10
+  max_length: 10000
+  strip_whitespace: true
+  lowercase: false
+
+# Split ratios
+split:
+  train_ratio: 0.9
+  val_ratio: 0.05
+  test_ratio: 0.05
+  shuffle: true
+  stratify: null
+
+# Tokenization
+tokenization:
+  padding: max_length
+  truncation: true
+  return_tensors: pt
+
+# DataLoader settings
+dataloader:
+  shuffle_train: true
+  drop_last: false
+  pin_memory: true

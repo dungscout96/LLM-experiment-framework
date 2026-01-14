@@ -1,0 +1,54 @@
+# RAG (Retrieval-Augmented Generation) Configuration
+name: rag
+type: rag
+
+# Vector store settings
+vector_store:
+  type: chroma  # chroma, faiss
+  collection_name: documents
+  persist_directory: ${project.root_dir}/data/vectorstore
+
+# Embedding model
+embeddings:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  device: auto
+  batch_size: 32
+
+# Document processing
+documents:
+  chunk_size: 1000
+  chunk_overlap: 200
+  separators:
+    - "\n\n"
+    - "\n"
+    - " "
+    - ""
+
+# Retrieval settings
+retrieval:
+  search_type: similarity  # similarity, mmr
+  k: 4  # Number of documents to retrieve
+  score_threshold: null  # Minimum similarity score
+  fetch_k: 20  # For MMR: number of documents to fetch before filtering
+  lambda_mult: 0.5  # For MMR: diversity parameter
+
+# Chain settings
+chain:
+  type: stuff  # stuff, map_reduce, refine, map_rerank
+  return_source_documents: true
+
+# Prompt template
+prompts:
+  qa_template: |
+    Use the following pieces of context to answer the question at the end.
+    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+    Context:
+    {context}
+
+    Question: {question}
+
+    Answer:
+
+# Verbose output
+verbose: true

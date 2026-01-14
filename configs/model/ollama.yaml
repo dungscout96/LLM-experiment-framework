@@ -1,0 +1,22 @@
+# Ollama Local API Configuration
+name: ollama_llama3
+family: llama
+
+# Model source
+source: ollama
+model_id: llama3:8b
+
+# API settings (Ollama runs locally)
+api:
+  base_url: http://localhost:11434
+  timeout: 120
+
+# Generation parameters
+generation:
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 50
+
+# Chat template (handled by Ollama)
+chat_template: null
