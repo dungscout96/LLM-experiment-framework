@@ -258,13 +258,13 @@ class OllamaModel(BaseModel):
         if self._client is not None:
             return
 
-        self._client = httpx.Client(
+        # Check if model is available locally
+        http_client = httpx.Client(
             base_url=self.base_url,
             timeout=self.api_cfg.get("timeout", 120),
         )
-
         try:
-            response = self._client.get("/api/tags")
+            response = http_client.get("/api/tags")
             response.raise_for_status()
             models = [m["name"] for m in response.json().get("models", [])]
             if self.model_id not in models:
@@ -274,6 +274,30 @@ class OllamaModel(BaseModel):
                 )
         except httpx.HTTPError as e:
             logger.warning(f"Could not connect to Ollama: {e}")
+        finally:
+            http_client.close()
+
+        # Use LangChain ChatOllama for better LangGraph integration
+        try:
+            from langchain_ollama import ChatOllama
+            gen_cfg = self.cfg.get("generation", {})
+            self._client = ChatOllama(
+                model=self.model_id,
+                base_url=self.base_url,
+                temperature=gen_cfg.get("temperature", 0.7),
+            )
+            self._client_type = "langchain"
+        except ImportError:
+            logger.warning(
+                "langchain-ollama not installed. "
+                "Install with: pip install langchain-ollama"
+            )
+            # Fall back to httpx client
+            self._client = httpx.Client(
+                base_url=self.base_url,
+                timeout=self.api_cfg.get("timeout", 120),
+            )
+            self._client_type = "httpx"
 
         logger.info(f"Ollama client initialized: {self.model_id}")
 
@@ -297,6 +321,11 @@ class OllamaModel(BaseModel):
         """
         if self._client is None:
             self.load()
+
+        # Use chat method for LangChain client
+        if self._client_type == "langchain":
+            messages = [{"role": "user", "content": prompt}]
+            return self.chat(messages, max_new_tokens, temperature, **kwargs)
 
         gen_config = self.get_generation_config(
             max_new_tokens=max_new_tokens,
@@ -339,6 +368,22 @@ class OllamaModel(BaseModel):
         """
         if self._client is None:
             self.load()
+
+        # Use LangChain client if available
+        if self._client_type == "langchain":
+            from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+            lc_messages = []
+            for msg in messages:
+                role = msg["role"]
+                content = msg["content"]
+                if role == "system":
+                    lc_messages.append(SystemMessage(content=content))
+                elif role == "user":
+                    lc_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    lc_messages.append(AIMessage(content=content))
+            response = self._client.invoke(lc_messages)
+            return response.content
 
         gen_config = self.get_generation_config(
             max_new_tokens=max_new_tokens,

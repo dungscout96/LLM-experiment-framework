@@ -43,6 +43,7 @@ dependencies = [
     "langchain-groq>=1.0.0",
     "langchain-huggingface>=1.0.0",
     "langchain-chroma>=1.0.0",
+    "langchain-ollama>=0.3.0",
 
     # API Clients
     "openai>=1.6.0",
