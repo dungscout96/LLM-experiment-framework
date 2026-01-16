@@ -1,13 +1,18 @@
 """Local model loading via HuggingFace Transformers."""
 
 import logging
+import os
 import platform
+from pathlib import Path
 from typing import Any
 
 import torch
 from omegaconf import DictConfig
+from PIL import Image
 from transformers import (
     AutoModelForCausalLM,
+    AutoModelForImageTextToText,
+    AutoProcessor,
     AutoTokenizer,
     BitsAndBytesConfig,
 )
@@ -51,6 +56,25 @@ def get_dtype(dtype_str: str, device: str) -> torch.dtype:
     return dtype
 
 
+def get_hf_token(cfg: DictConfig) -> str | None:
+    """Get HuggingFace token from config or environment.
+
+    Args:
+        cfg: Model configuration.
+
+    Returns:
+        HuggingFace token or None.
+    """
+    # Check config first
+    token = cfg.get("hf_token", None)
+    if token and token != "null":
+        return token
+
+    # Fall back to environment variables
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    return token
+
+
 @ModelFactory.register("local")
 class LocalModel(BaseModel):
     """Local model loaded via HuggingFace Transformers."""
@@ -64,6 +88,9 @@ class LocalModel(BaseModel):
         super().__init__(cfg)
         self.device = None
         self.dtype = None
+        self.hf_token = get_hf_token(cfg)
+        self.is_multimodal = cfg.get("multimodal", False)
+        self._processor = None  # For multimodal models
 
     def load(self, device: str | None = None, dtype: str | None = None) -> None:
         """Load model from HuggingFace Hub.
@@ -82,10 +109,23 @@ class LocalModel(BaseModel):
 
         logger.info(f"Loading {self.model_id} on {self.device} with {self.dtype}")
 
+        if self.is_multimodal:
+            self._load_multimodal_model()
+        else:
+            self._load_text_model()
+
+        if self.cfg.get("gradient_checkpointing", False):
+            self._model.gradient_checkpointing_enable()
+
+        logger.info(f"Model loaded: {self._model.config.name_or_path}")
+
+    def _load_text_model(self) -> None:
+        """Load a text-only model."""
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_id,
             trust_remote_code=True,
             revision=self.cfg.get("revision", "main"),
+            token=self.hf_token,
         )
 
         if self._tokenizer.pad_token is None:
@@ -97,13 +137,37 @@ class LocalModel(BaseModel):
             self.model_id,
             trust_remote_code=True,
             revision=self.cfg.get("revision", "main"),
+            token=self.hf_token,
             **model_kwargs,
         )
 
-        if self.cfg.get("gradient_checkpointing", False):
-            self._model.gradient_checkpointing_enable()
+    def _load_multimodal_model(self) -> None:
+        """Load a multimodal vision-language model."""
+        logger.info("Loading multimodal model with processor")
 
-        logger.info(f"Model loaded: {self._model.config.name_or_path}")
+        # Load processor for handling both text and images
+        self._processor = AutoProcessor.from_pretrained(
+            self.model_id,
+            trust_remote_code=True,
+            revision=self.cfg.get("revision", "main"),
+            token=self.hf_token,
+        )
+
+        # Set tokenizer reference for compatibility
+        self._tokenizer = self._processor.tokenizer
+        if self._tokenizer.pad_token is None:
+            self._tokenizer.pad_token = self._tokenizer.eos_token
+
+        model_kwargs = self._get_model_kwargs()
+
+        # Load the vision-language model
+        self._model = AutoModelForImageTextToText.from_pretrained(
+            self.model_id,
+            trust_remote_code=True,
+            revision=self.cfg.get("revision", "main"),
+            token=self.hf_token,
+            **model_kwargs,
+        )
 
     def _get_model_kwargs(self) -> dict[str, Any]:
         """Get model loading kwargs based on configuration."""
@@ -252,3 +316,194 @@ class LocalModel(BaseModel):
         if self._tokenizer is None:
             self.load()
         return self._tokenizer
+
+    def get_processor(self):
+        """Get processor for multimodal models.
+
+        Returns:
+            Processor instance (for multimodal) or tokenizer (for text-only).
+        """
+        if self._model is None:
+            self.load()
+        return self._processor if self._processor else self._tokenizer
+
+    def generate_with_image(
+        self,
+        prompt: str,
+        image: str | Image.Image,
+        max_new_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Generate text from a prompt with an image.
+
+        Args:
+            prompt: Input prompt/question about the image.
+            image: PIL Image or path to image file.
+            max_new_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature.
+            **kwargs: Additional generation parameters.
+
+        Returns:
+            Generated text response.
+
+        Raises:
+            ValueError: If model is not multimodal.
+        """
+        if not self.is_multimodal:
+            raise ValueError(
+                f"Model {self.model_id} is not multimodal. "
+                "Use generate() for text-only models."
+            )
+
+        if self._model is None:
+            self.load()
+
+        # Load image if path provided
+        if isinstance(image, str):
+            image = Image.open(image).convert("RGB")
+
+        gen_config = self.get_generation_config(
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            **kwargs,
+        )
+
+        # Process inputs using the multimodal processor
+        inputs = self._processor(
+            text=prompt,
+            images=image,
+            return_tensors="pt",
+        )
+
+        # Move to device
+        if self.device == "mps":
+            inputs = {k: v.to("mps") if hasattr(v, "to") else v for k, v in inputs.items()}
+        elif self.device == "cuda":
+            inputs = {k: v.to("cuda") if hasattr(v, "to") else v for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model.generate(
+                **inputs,
+                pad_token_id=self._tokenizer.pad_token_id,
+                **gen_config,
+            )
+
+        # Decode output, excluding input tokens
+        input_len = inputs["input_ids"].shape[1]
+        generated = outputs[0][input_len:]
+        return self._tokenizer.decode(generated, skip_special_tokens=True)
+
+    def chat_with_images(
+        self,
+        messages: list[dict[str, Any]],
+        max_new_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Generate a chat response with image support.
+
+        Args:
+            messages: Chat messages with role and content. Content can be:
+                - A string (text only)
+                - A list of dicts with "type" (text/image) and content
+                  Example: [{"type": "image", "image": <PIL.Image or path>},
+                           {"type": "text", "text": "What is this?"}]
+            max_new_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature.
+            **kwargs: Additional generation parameters.
+
+        Returns:
+            Assistant's response.
+
+        Raises:
+            ValueError: If model is not multimodal.
+        """
+        if not self.is_multimodal:
+            raise ValueError(
+                f"Model {self.model_id} is not multimodal. "
+                "Use chat() for text-only models."
+            )
+
+        if self._model is None:
+            self.load()
+
+        # Extract images from messages
+        images = []
+        processed_messages = []
+
+        for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+
+            if isinstance(content, list):
+                # Multi-part content with images
+                text_parts = []
+                for part in content:
+                    if part.get("type") == "image":
+                        img = part.get("image")
+                        if isinstance(img, str):
+                            img = Image.open(img).convert("RGB")
+                        images.append(img)
+                        text_parts.append("<image>")
+                    elif part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                processed_messages.append({
+                    "role": role,
+                    "content": " ".join(text_parts),
+                })
+            else:
+                processed_messages.append({"role": role, "content": content})
+
+        # Apply chat template
+        if hasattr(self._processor, "apply_chat_template"):
+            prompt = self._processor.apply_chat_template(
+                processed_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        elif hasattr(self._tokenizer, "apply_chat_template"):
+            prompt = self._tokenizer.apply_chat_template(
+                processed_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt = self._format_messages_fallback(processed_messages)
+
+        gen_config = self.get_generation_config(
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            **kwargs,
+        )
+
+        # Process with images if present
+        if images:
+            inputs = self._processor(
+                text=prompt,
+                images=images if len(images) > 1 else images[0],
+                return_tensors="pt",
+            )
+        else:
+            inputs = self._processor(
+                text=prompt,
+                return_tensors="pt",
+            )
+
+        # Move to device
+        if self.device == "mps":
+            inputs = {k: v.to("mps") if hasattr(v, "to") else v for k, v in inputs.items()}
+        elif self.device == "cuda":
+            inputs = {k: v.to("cuda") if hasattr(v, "to") else v for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model.generate(
+                **inputs,
+                pad_token_id=self._tokenizer.pad_token_id,
+                **gen_config,
+            )
+
+        # Decode output
+        input_len = inputs["input_ids"].shape[1]
+        generated = outputs[0][input_len:]
+        return self._tokenizer.decode(generated, skip_special_tokens=True)

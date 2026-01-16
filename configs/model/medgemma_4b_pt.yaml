@@ -1,0 +1,40 @@
+# MedGemma 4B Pretrained Multimodal Configuration
+# Medical domain-specialized vision-language model (pretrained, not instruction-tuned)
+name: medgemma_4b_pt
+family: gemma
+
+# Model source
+source: local
+model_id: google/medgemma-4b-pt
+revision: main
+
+# This model requires HuggingFace authentication (gated model)
+# Set HF_TOKEN environment variable or configure hf_token below
+hf_token: ${oc.env:HF_TOKEN,null}
+
+# Multimodal configuration
+multimodal: true
+model_type: vision_language  # Indicates this is an image-text model
+
+# Quantization settings
+quantization:
+  enabled: false
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+
+# Generation parameters (adjusted for pretrained model)
+generation:
+  max_new_tokens: 512
+  temperature: 0.8
+  top_p: 0.95
+  top_k: 50
+  do_sample: true
+  repetition_penalty: 1.1
+
+# Chat template
+chat_template: null
+
+# Memory optimization
+use_flash_attention: true
+gradient_checkpointing: true

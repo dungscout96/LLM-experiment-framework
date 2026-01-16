@@ -1,166 +1,221 @@
 #!/usr/bin/env python3
-"""Simple inference script for trained models."""
+"""Unified inference script supporting all model sources.
 
+Supports all model sources via Hydra config:
+- Local HuggingFace models: model=medgemma_4b, model=llama3_8b
+- API models (Groq, HF Inference): model=api_groq, model=api_huggingface
+- Ollama: model=ollama
+
+Examples:
+    # MedGemma (local) with prompt
+    python scripts/inference.py model=medgemma_27b_text +prompt="What is diabetes?"
+
+    # Groq API
+    python scripts/inference.py model=api_groq +prompt="Hello!"
+
+    # Ollama
+    python scripts/inference.py model=ollama +prompt="Explain machine learning"
+
+    # Interactive mode (no prompt)
+    python scripts/inference.py model=medgemma_4b
+
+    # With image (multimodal models)
+    python scripts/inference.py model=medgemma_4b +image=path/to/xray.jpg +prompt="Describe"
+
+    # Override generation settings
+    python scripts/inference.py model=api_groq +prompt="Hello" +max_tokens=100 +temperature=0.5
+"""
+
+import os
 import sys
 from pathlib import Path
 
-import torch
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+import hydra
+from dotenv import load_dotenv
+from omegaconf import DictConfig, OmegaConf
+
+# Load environment variables
+load_dotenv()
 
 
-def load_model(
-    base_model_id: str,
-    adapter_path: str,
-    device: str = "auto",
-):
-    """Load base model with LoRA adapter.
+def run_inference(cfg: DictConfig):
+    """Run inference with the configured model.
 
     Args:
-        base_model_id: HuggingFace model ID.
-        adapter_path: Path to saved LoRA adapter.
-        device: Target device (auto, cuda, mps, cpu).
-
-    Returns:
-        Tuple of (model, tokenizer).
+        cfg: Hydra configuration.
     """
-    print(f"Loading tokenizer from {adapter_path}")
-    tokenizer = AutoTokenizer.from_pretrained(adapter_path)
+    # Import here to avoid slow startup for --help
+    from src.models.base import ModelFactory
 
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # Ensure model classes are registered
+    from src.models import local, api  # noqa: F401
 
-    # Determine device
-    if device == "auto":
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif torch.backends.mps.is_available():
-            device = "mps"
+    print(f"Creating model: {cfg.model.name} (source: {cfg.model.source})")
+
+    # Create model via factory
+    model = ModelFactory.create(cfg.model)
+
+    # Load the model
+    print("Loading model...")
+    if hasattr(model, 'load'):
+        if cfg.model.source == "local":
+            # Use hardware.device from config or auto
+            device = cfg.get("device", cfg.hardware.get("device", "auto"))
+            if device == "auto":
+                device = None
+            model.load(device=device)
         else:
-            device = "cpu"
+            model.load()
 
-    print(f"Loading base model: {base_model_id} on {device}")
+    print(f"Model ready: {model}")
 
-    # Load base model
-    model_kwargs = {
-        "torch_dtype": torch.float16 if device != "cpu" else torch.float32,
-        "trust_remote_code": True,
-    }
+    # Get inference parameters from config
+    prompt = cfg.get("prompt", None)
+    image_path = cfg.get("image", None)
+    max_tokens = cfg.get("max_tokens", 256)
+    temperature = cfg.get("temperature", None)
+    use_chat = cfg.get("use_chat", True)
 
-    if device == "cuda":
-        model_kwargs["device_map"] = "auto"
-    elif device == "mps":
-        model_kwargs["attn_implementation"] = "eager"
+    # Check if multimodal
+    is_multimodal = cfg.model.get("multimodal", False)
 
-    base_model = AutoModelForCausalLM.from_pretrained(base_model_id, **model_kwargs)
-
-    # Load adapter
-    print(f"Loading LoRA adapter from {adapter_path}")
-    model = PeftModel.from_pretrained(base_model, adapter_path)
-
-    if device == "mps":
-        model = model.to("mps")
-
-    model.eval()
-    return model, tokenizer, device
-
-
-def generate(
-    model,
-    tokenizer,
-    prompt: str,
-    device: str,
-    max_new_tokens: int = 256,
-    use_chat_template: bool = True,
-):
-    """Generate response from the model.
-
-    Args:
-        model: The model.
-        tokenizer: The tokenizer.
-        prompt: User prompt.
-        device: Device the model is on.
-        max_new_tokens: Maximum tokens to generate.
-        use_chat_template: Whether to apply chat template.
-
-    Returns:
-        Generated response.
-    """
-    if use_chat_template and hasattr(tokenizer, "apply_chat_template"):
-        messages = [{"role": "user", "content": prompt}]
-        formatted_prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-    else:
-        formatted_prompt = prompt
-
-    inputs = tokenizer(formatted_prompt, return_tensors="pt")
-
-    if device in ["cuda", "mps"]:
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,  # Greedy for stability
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-
-    response = tokenizer.decode(
-        outputs[0][inputs["input_ids"].shape[1]:],
-        skip_special_tokens=True,
-    )
-    return response
-
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run inference on trained model")
-    parser.add_argument("--base-model", type=str, required=True, help="Base model ID")
-    parser.add_argument("--adapter", type=str, required=True, help="Path to LoRA adapter")
-    parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/mps/cpu)")
-    parser.add_argument("--prompt", type=str, help="Single prompt to run")
-    parser.add_argument("--max-tokens", type=int, default=256, help="Max new tokens")
-    parser.add_argument("--no-chat-template", action="store_true", help="Don't use chat template")
-    args = parser.parse_args()
-
-    # Load model
-    model, tokenizer, device = load_model(args.base_model, args.adapter, args.device)
-
-    if args.prompt:
+    if prompt:
         # Single prompt mode
-        response = generate(
-            model, tokenizer, args.prompt, device,
-            max_new_tokens=args.max_tokens,
-            use_chat_template=not args.no_chat_template,
-        )
+        if image_path and is_multimodal:
+            print(f"\nProcessing image: {image_path}")
+            response = model.generate_with_image(
+                prompt=prompt,
+                image=image_path,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+            )
+        elif use_chat:
+            messages = [{"role": "user", "content": prompt}]
+            response = model.chat(
+                messages=messages,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+            )
+        else:
+            response = model.generate(
+                prompt=prompt,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+            )
         print(f"\nResponse: {response}")
     else:
         # Interactive mode
-        print("\nInteractive mode. Type 'quit' to exit.\n")
-        while True:
-            try:
-                prompt = input("You: ").strip()
-            except (KeyboardInterrupt, EOFError):
-                break
+        run_interactive(model, max_tokens, temperature, is_multimodal)
 
-            if prompt.lower() == "quit":
-                break
 
-            if not prompt:
-                continue
+def run_interactive(model, max_tokens: int, temperature: float | None, is_multimodal: bool):
+    """Run interactive chat mode.
 
-            response = generate(
-                model, tokenizer, prompt, device,
-                max_new_tokens=args.max_tokens,
-                use_chat_template=not args.no_chat_template,
-            )
+    Args:
+        model: The loaded model.
+        max_tokens: Max tokens to generate.
+        temperature: Sampling temperature.
+        is_multimodal: Whether model supports images.
+    """
+    print("\n" + "=" * 50)
+    print("Interactive mode. Commands:")
+    print("  quit     - Exit")
+    if is_multimodal:
+        print("  /image   - Set image path for next message")
+        print("  /clear   - Clear image")
+    print("=" * 50 + "\n")
+
+    current_image = None
+
+    while True:
+        try:
+            prompt = input("You: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            break
+
+        if not prompt:
+            continue
+
+        if prompt.lower() == "quit":
+            break
+
+        if prompt.startswith("/image "):
+            if is_multimodal:
+                current_image = prompt[7:].strip()
+                print(f"Image set: {current_image}")
+            else:
+                print("This model doesn't support images.")
+            continue
+
+        if prompt == "/clear":
+            current_image = None
+            print("Image cleared.")
+            continue
+
+        try:
+            if current_image and is_multimodal:
+                response = model.generate_with_image(
+                    prompt=prompt,
+                    image=current_image,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                current_image = None  # Clear after use
+            else:
+                messages = [{"role": "user", "content": prompt}]
+                response = model.chat(
+                    messages=messages,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                )
             print(f"Assistant: {response}\n")
+        except Exception as e:
+            print(f"Error: {e}\n")
 
     print("Goodbye!")
+
+
+def list_models():
+    """List available model configurations."""
+    print("\nAvailable models (use model=<name>):\n")
+    model_dir = project_root / "configs" / "model"
+    for f in sorted(model_dir.glob("*.yaml")):
+        try:
+            cfg = OmegaConf.load(f)
+            source = cfg.get("source", "unknown")
+            model_id = cfg.get("model_id", "N/A")
+            multimodal = cfg.get("multimodal", False)
+            mm_tag = " [multimodal]" if multimodal else ""
+            print(f"  {f.stem:20s} {source:8s} {model_id}{mm_tag}")
+        except Exception:
+            print(f"  {f.stem:20s} (error loading config)")
+    print()
+
+
+@hydra.main(version_base=None, config_path="../configs", config_name="config")
+def main(cfg: DictConfig):
+    """Main entry point with Hydra config.
+
+    Usage:
+        # Run with prompt
+        python scripts/inference.py model=api_groq +prompt="Hello!"
+
+        # Interactive mode
+        python scripts/inference.py model=medgemma_4b
+
+        # List models
+        python scripts/inference.py +list_models=true
+    """
+    # Check for list_models flag
+    if cfg.get("list_models", False):
+        list_models()
+        return
+
+    run_inference(cfg)
 
 
 if __name__ == "__main__":
